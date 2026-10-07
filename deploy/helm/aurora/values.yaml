@@ -586,6 +586,7 @@ secrets:
     BEDROCK_ACCESS_KEY_ID: ""        # native mode; falls back to AWS_ACCESS_KEY_ID or an IRSA role
     BEDROCK_SECRET_ACCESS_KEY: ""    # native mode; falls back to AWS_SECRET_ACCESS_KEY
     BEDROCK_SESSION_TOKEN: ""        # native mode; only for temporary / STS credentials
+    BEDROCK_GATEWAY_MODEL: ""        # gateway mode only: pin every request to this model name
 
 # ------------------------------------------------------------------------------
 # Security contexts

@@ -115,6 +115,9 @@ class BedrockProvider(BaseLLMProvider):
         # Gateway auth is typically unnecessary (VPC boundary handles it); ChatOpenAI
         # still requires a non-empty key, so fall back to a placeholder.
         self.api_key = os.getenv("BEDROCK_API_KEY") or "not-needed"
+        # Optional: pin every gateway request to one model name (e.g. a self-hosted
+        # OpenAI-compatible server exposing a single model), ignoring the picked model.
+        self.gateway_model = os.getenv("BEDROCK_GATEWAY_MODEL")
 
         # Native mode (AWS SDK). BEDROCK_* takes precedence over standard AWS_*.
         self.region = (
@@ -144,6 +147,8 @@ class BedrockProvider(BaseLLMProvider):
         # Gateway mode is auto-selected by the presence of BEDROCK_BASE_URL; otherwise
         # native mode (AWS SDK). is_available() above guarantees one of the two is set.
         if self.base_url:
+            if self.gateway_model:
+                native_model = self.gateway_model
             logger.info(f"Creating Bedrock (gateway) chat model: {native_model} (base_url={self.base_url})")
             config = {
                 "model": native_model,
