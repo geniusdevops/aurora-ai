@@ -49,6 +49,7 @@ const PROVIDER_ICONS: Record<string, string> = {
   bitbucket: "/bitbucket.svg",
   tailscale: "/tailscale.svg",
   scaleway: "/scaleway.svg",
+  ibm: "/ibm.svg",
   ovh: "/ovh.svg",
   newrelic: "/newrelic.svg",
 };
@@ -77,6 +78,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   bitbucket: "Bitbucket",
   tailscale: "Tailscale",
   scaleway: "Scaleway",
+  ibm: "IBM Cloud",
   ovh: "OVH Cloud",
   newrelic: "New Relic",
 };

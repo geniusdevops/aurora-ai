@@ -456,6 +456,30 @@ def _check_scaleway(creds: Dict[str, Any]) -> Dict[str, Any]:
         return {"connected": False}
 
 
+def _check_ibm(creds: Dict[str, Any]) -> Dict[str, Any]:
+    """Mirrors /ibm/status — one (cached) IAM token exchange for the first account.
+
+    Runs on every status poll, so it deliberately does not exchange every
+    account's key.
+    """
+    accounts = creds.get("accounts")
+    if not isinstance(accounts, dict) or not accounts:
+        return {"connected": False}
+    first = accounts[sorted(accounts)[0]] or {}
+    api_key = first.get("api_key")
+    if not api_key:
+        return {"connected": False}
+    try:
+        from connectors.ibm_connector.client import IBMAuthError, IBMError, get_iam_token
+        get_iam_token(api_key)
+        return {"connected": True}
+    except IBMAuthError:
+        return {"connected": False}
+    except IBMError:
+        # IAM unreachable: keep reporting the stored connection.
+        return {"connected": True}
+
+
 def _check_ovh(creds: Dict[str, Any]) -> Dict[str, Any]:
     """Mirrors /ovh/status — validates via OVH cloud/project API with OAuth refresh."""
     uid = creds.get("_user_id")
@@ -840,6 +864,7 @@ PROVIDER_CHECKERS = {
     "bitbucket": _check_bitbucket,
     "thousandeyes": _check_thousandeyes,
     "scaleway": _check_scaleway,
+    "ibm": _check_ibm,
     "ovh": _check_ovh,
     "sharepoint": _check_sharepoint,
     "notion": _check_notion,
