@@ -142,6 +142,10 @@ CORS(app, origins=FRONTEND_URL, supports_credentials=True,
                        "allow_headers": ["Content-Type", "X-Provider", "X-Requested-With", "X-User-ID",
                                          "Authorization", "X-Provider-Preference"],
                        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]},
+        r"/ibm/*": {"origins": FRONTEND_URL, "supports_credentials": True,
+                    "allow_headers": ["Content-Type", "X-Provider", "X-Requested-With", "X-User-ID",
+                                      "Authorization", "X-Provider-Preference"],
+                    "methods": ["GET", "POST", "DELETE", "OPTIONS"]},
         r"/scaleway_api/*": {"origins": FRONTEND_URL, "supports_credentials": True,
                             "allow_headers": ["Content-Type", "X-Provider", "X-Requested-With", "X-User-ID",
                                               "Authorization", "X-Provider-Preference"],
@@ -634,6 +638,10 @@ from utils.flags.feature_flags import is_ovh_enabled
 if is_ovh_enabled():
     from routes.ovh import ovh_bp
     app.register_blueprint(ovh_bp, url_prefix="/ovh_api")
+
+# --- IBM Cloud Routes (registered at root; routes spell out /ibm/...) ---
+from routes.ibm import ibm_bp
+app.register_blueprint(ibm_bp)
 
 # --- Scaleway Routes ---
 from routes.scaleway import scaleway_bp

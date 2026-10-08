@@ -274,6 +274,15 @@ def delete_connected_account(user_id, target_user_id, provider):
         deletion_ok = True
         deleted = 0
 
+        # Load IBM account keys before the secret goes, to drop their cached IAM tokens.
+        ibm_entries = []
+        if provider_lc == "ibm":
+            try:
+                from utils.cloud.ibm_credentials import load_ibm_accounts
+                ibm_entries = list(load_ibm_accounts(user_id).values())
+            except Exception as e:
+                logging.warning("Failed to load IBM accounts for user %s: %s", user_id, e)
+
         if provider_lc in SUPPORTED_SECRET_PROVIDERS:
             # For providers that use Vault (GCP/Azure etc.)
             deletion_ok, deleted = delete_user_secret(user_id, provider_lc)
@@ -409,6 +418,19 @@ def delete_connected_account(user_id, target_user_id, provider):
                     )
                     _ok = False
                 deletion_ok = deletion_ok and _ok
+
+        # --------------------------------------------------------------
+        # IBM stores one user_connections row per account plus cached IAM
+        # tokens; deactivate them all so fan-out and discovery stop using them.
+        # The Vault secret was already deleted above.
+        # --------------------------------------------------------------
+        if provider_lc == "ibm":
+            try:
+                from routes.ibm.helpers import disconnect_all_ibm
+                deletion_ok = disconnect_all_ibm(user_id, ibm_entries) and deletion_ok
+            except Exception as e:
+                logging.warning("Failed to deactivate IBM accounts for user %s: %s", user_id, e)
+                deletion_ok = False
 
         # Clean up Memgraph discovery nodes for all other providers that reach this
         # generic path (GCP, Azure, and any provider that uses Vault-backed tokens).

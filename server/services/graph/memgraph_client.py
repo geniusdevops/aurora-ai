@@ -145,6 +145,7 @@ class MemgraphClient:
             s.criticality = $criticality,
             s.team_owner = $team_owner,
             s.aws_account_id = $aws_account_id,
+            s.ibm_account_id = $ibm_account_id,
             s.metadata = $metadata,
             s.created_at = localDateTime(),
             s.updated_at = localDateTime()
@@ -162,6 +163,7 @@ class MemgraphClient:
             s.criticality = $criticality,
             s.team_owner = $team_owner,
             s.aws_account_id = $aws_account_id,
+            s.ibm_account_id = $ibm_account_id,
             s.metadata = $metadata,
             s.updated_at = localDateTime()
         RETURN s;
@@ -207,6 +209,7 @@ class MemgraphClient:
             s.criticality = svc.criticality,
             s.team_owner = svc.team_owner,
             s.aws_account_id = svc.aws_account_id,
+            s.ibm_account_id = svc.ibm_account_id,
             s.metadata = svc.metadata,
             s.created_at = localDateTime(),
             s.updated_at = localDateTime()
@@ -224,6 +227,7 @@ class MemgraphClient:
             s.criticality = svc.criticality,
             s.team_owner = svc.team_owner,
             s.aws_account_id = svc.aws_account_id,
+            s.ibm_account_id = svc.ibm_account_id,
             s.metadata = svc.metadata,
             s.updated_at = localDateTime()
         RETURN count(s) AS total;
@@ -830,6 +834,33 @@ class MemgraphClient:
         )
         return deleted
 
+    # Node property that records which cloud account discovered a Service.
+    _ACCOUNT_ID_PROPERTIES = {"aws": "aws_account_id", "ibm": "ibm_account_id"}
+
+    def delete_services_for_account(self, user_id, provider, account_id):
+        """Delete Service nodes for one account of a multi-account provider.
+
+        Matches the provider's account-id property set during discovery, so
+        other accounts' nodes are left intact.
+        """
+        prop = self._ACCOUNT_ID_PROPERTIES.get(provider)
+        if not prop:
+            raise ValueError(f"No account-id property for provider {provider!r}")
+        query = f"""
+        MATCH (s:Service {{user_id: $user_id, provider: $provider, {prop}: $account_id}})
+        DETACH DELETE s
+        RETURN count(s) AS deleted;
+        """
+        results = self._execute(
+            query, {"user_id": user_id, "provider": provider, "account_id": account_id}
+        )
+        deleted = results[0]["deleted"] if results else 0
+        logger.info(
+            "[MemgraphClient] Deleted %d Service nodes for user=%s provider=%s account=%s",
+            deleted, sanitize(user_id), sanitize(provider), sanitize(account_id),
+        )
+        return deleted
+
     def mark_stale_services(self, user_id, stale_days=7):
         """Mark services not updated in N days as stale."""
         query = """
@@ -924,5 +955,6 @@ class MemgraphClient:
             "criticality": svc.get("criticality", "medium"),
             "team_owner": svc.get("team_owner", ""),
             "aws_account_id": svc.get("aws_account_id", ""),
+            "ibm_account_id": svc.get("ibm_account_id", ""),
             "metadata": json.dumps(metadata) if isinstance(metadata, dict) else (metadata or "{}"),
         }

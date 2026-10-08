@@ -25,7 +25,7 @@ export async function DELETE(
     const { provider } = await context.params
 
     // Validate provider
-    if (!['gcp', 'azure', 'aws', 'github', 'gitlab', 'grafana', 'datadog', 'netdata', 'ovh', 'scaleway', 'tailscale', 'slack', 'google_chat', 'splunk', 'dynatrace', 'confluence', 'jira', 'sharepoint', 'coroot', 'thousandeyes', 'jenkins', 'cloudbees', 'bigpanda', 'spinnaker', 'newrelic', 'opsgenie', 'incidentio', 'sentry', 'elastic'].includes(provider)) {
+    if (!['gcp', 'azure', 'aws', 'github', 'gitlab', 'grafana', 'datadog', 'netdata', 'ovh', 'scaleway', 'ibm', 'tailscale', 'slack', 'google_chat', 'splunk', 'dynatrace', 'confluence', 'jira', 'sharepoint', 'coroot', 'thousandeyes', 'jenkins', 'cloudbees', 'bigpanda', 'spinnaker', 'newrelic', 'opsgenie', 'incidentio', 'sentry', 'elastic'].includes(provider)) {
       return NextResponse.json(
         { error: 'Invalid provider' },
         { status: 400 }
@@ -104,6 +104,26 @@ export async function DELETE(
         console.error('Backend error disconnecting Scaleway:', errorText)
         return NextResponse.json(
           { error: 'Failed to disconnect Scaleway' },
+          { status: response.status }
+        )
+      }
+
+      const data = await response.json()
+      return NextResponse.json(data)
+    }
+
+    // IBM Cloud: disconnect every connected account (uses POST instead of DELETE)
+    if (provider === 'ibm') {
+      const response = await fetch(`${API_BASE_URL}/ibm/disconnect`, {
+        method: 'POST',
+        headers: authHeaders,
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Backend error disconnecting IBM Cloud:', errorText)
+        return NextResponse.json(
+          { error: 'Failed to disconnect IBM Cloud' },
           { status: response.status }
         )
       }

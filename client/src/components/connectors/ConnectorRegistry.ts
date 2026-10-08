@@ -368,6 +368,17 @@ class ConnectorRegistry {
     });
 
     this.register({
+      id: "ibm",
+      name: "IBM Cloud",
+      description: "Connect IBM Cloud accounts with Service ID API keys to give Aurora access to your VPC, IKS/OpenShift and platform services.",
+      iconPath: "/ibm.svg",
+      iconBgColor: "bg-muted",
+      category: "Infrastructure",
+      path: "/ibm/onboarding",
+      storageKey: "isIbmConnected",
+    });
+
+    this.register({
       id: "tailscale",
       name: "Tailscale",
       description: "Connect to Tailscale to manage your private network, access resources securely, and configure networking across your infrastructure.",

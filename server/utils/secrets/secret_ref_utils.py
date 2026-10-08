@@ -50,6 +50,7 @@ SUPPORTED_SECRET_PROVIDERS: Set[str] = {
     "elastic",   # Elastic Cloud connector tokens
     "ovh",      # OVH Cloud
     "scaleway", # Scaleway Cloud
+    "ibm",      # IBM Cloud (Service ID API keys, one secret per org)
     "tailscale", # Tailscale VPN
     "cloudflare", # Cloudflare (DNS, Workers, WAF, analytics)
     "slack",    # Slack connector tokens
