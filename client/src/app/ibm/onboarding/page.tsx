@@ -17,12 +17,15 @@ const IBM_REGIONS = [
   { id: "us-south", label: "Dallas (us-south)" },
   { id: "us-east", label: "Washington DC (us-east)" },
   { id: "ca-tor", label: "Toronto (ca-tor)" },
+  { id: "ca-mon", label: "Montreal (ca-mon)" },
   { id: "br-sao", label: "São Paulo (br-sao)" },
   { id: "eu-gb", label: "London (eu-gb)" },
   { id: "eu-de", label: "Frankfurt (eu-de)" },
   { id: "eu-es", label: "Madrid (eu-es)" },
   { id: "jp-tok", label: "Tokyo (jp-tok)" },
   { id: "jp-osa", label: "Osaka (jp-osa)" },
+  { id: "in-che", label: "Chennai (in-che)" },
+  { id: "in-mum", label: "Mumbai (in-mum)" },
   { id: "au-syd", label: "Sydney (au-syd)" },
 ];
 
