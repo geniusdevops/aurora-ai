@@ -108,7 +108,7 @@ COMMAND_WRAPPERS = frozenset({
 # its operation as the last positional, and gets every positional scanned for
 # write verbs. Membership here only *relaxes* the scan, so an absent CLI
 # over-blocks rather than under-blocks -- the safe direction for this gate.
-OPERAND_POSITIONAL_CLIS = frozenset({'kubectl'})
+OPERAND_POSITIONAL_CLIS = frozenset({'kubectl', 'oc'})
 
 # Subcommand groups of the CLIs above whose operation continues one token
 # further, so the relaxed scan must not stop at the group name. `kubectl config`
@@ -146,6 +146,8 @@ CREDENTIAL_FLAGS = frozenset({
     '--with-decryption',   # aws ssm get-parameter
     '--expand-keys',       # az iot hub policy show
     '--include-keys', '--show-keys', '--show-secrets', '--reveal',
+    # admin kubeconfigs: `az aks get-credentials --admin`, `ibmcloud ks cluster config --admin`
+    '--admin',
 })
 
 # Credential reads that contain none of the CREDENTIAL_WORDS.
@@ -279,6 +281,37 @@ def _verb_of(token: str) -> Optional[str]:
     return None
 
 
+def _trailing_write_verb(token: str) -> Optional[str]:
+    """The write verb a hyphenated operation *ends* with, if any.
+
+    Some CLIs put the verb last (`instance-delete`, `vpc-stop`), so matching the
+    leading word alone finds no verb at all for them.
+    """
+    if '-' not in token:
+        return None
+    last = token.rsplit('-', 1)[-1]
+    return last if last in WRITE_VERBS else None
+
+
+def _is_plural_listing(operation: tuple) -> bool:
+    """Whether a verb-less operation is a bare plural listing.
+
+    Some CLIs list a resource type by naming it with no verb (`<cli> is
+    instances`, `<cli> regions`). Narrow on purpose: the program, at most one
+    subcommand group, and a plain plural noun last. A hyphenated noun is never
+    accepted, because shape cannot tell `service-instances` from an unknown
+    operation such as `frobnicate-instances`. Writes and credential reads are
+    rejected before this is consulted.
+    """
+    if not 2 <= len(operation) <= 3:
+        return False
+    if not all(re.fullmatch(r'[a-z][a-z0-9-]*', t) for t in operation):
+        return False
+    noun = operation[-1]
+    return (len(noun) >= 4 and '-' not in noun
+            and noun.endswith('s') and not noun.endswith('ss'))
+
+
 def _find_verb(operation: list[str]) -> tuple[Optional[str], int]:
     """The first positional that is a known verb, plus its index.
 
@@ -314,7 +347,7 @@ def _find_write_verb(operation: list[str], executable: Optional[str],
     else:
         scanned = operation
     for token in scanned:
-        if _verb_of(token) in WRITE_VERBS:
+        if _verb_of(token) in WRITE_VERBS or _trailing_write_verb(token):
             return token
     return None
 
@@ -445,8 +478,11 @@ def _write_rejection(facts: list) -> str:
         verb = _verb_of(f.write_verb)
         if verb == f.write_verb:
             return "'%s' is a write operation" % f.write_verb
-        return ("'%s' is a write operation (it leads with '%s')"
-                % (f.write_verb, verb))
+        if verb in WRITE_VERBS:
+            return ("'%s' is a write operation (it leads with '%s')"
+                    % (f.write_verb, verb))
+        return ("'%s' is a write operation (it ends with '%s')"
+                % (f.write_verb, _trailing_write_verb(f.write_verb)))
     return ''
 
 
@@ -492,6 +528,10 @@ def describe_rejection(command: str) -> str:
             return reason
 
     if facts[0].verb in READ_ONLY_VERBS or _is_real_dry_run(segments):
+        return ''
+
+    # `<cli> is instances`: a resource type named with no verb lists it.
+    if facts[0].verb is None and _is_plural_listing(facts[0].operation):
         return ''
 
     # Unknown or absent operation.

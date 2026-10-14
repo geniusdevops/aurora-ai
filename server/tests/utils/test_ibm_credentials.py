@@ -108,3 +108,15 @@ def test_lock_key_is_org_scoped():
         k3 = creds._lock_key("user-1")
     assert k1 == k2 != k3
     assert 0 <= k1 <= 0x7FFFFFFFFFFFFFFF
+
+
+def test_update_fields_merges_without_touching_keys(store):
+    state, _, _ = store
+    creds.upsert_ibm_account("u1", ACCOUNT_A, {"api_key": "ka"})
+    assert creds.update_ibm_account_fields("u1", ACCOUNT_A, {"resource_group_name": "Default", "x": None})
+    entry = state["data"]["accounts"][ACCOUNT_A]
+    assert entry == {"api_key": "ka", "resource_group_name": "Default"}
+
+
+def test_update_fields_on_missing_account_returns_false(store):
+    assert creds.update_ibm_account_fields("u1", ACCOUNT_A, {"a": 1}) is False

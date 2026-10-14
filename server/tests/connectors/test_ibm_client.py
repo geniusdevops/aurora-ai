@@ -152,3 +152,27 @@ def test_global_search_denied_raises_auth_error():
     with patch.object(ibm.requests, "post", return_value=_resp(403, {"code": "forbidden"})):
         with pytest.raises(ibm.IBMAuthError):
             ibm.global_search("tok")
+
+
+# --- resource group resolution ------------------------------------------------
+
+def test_resolve_resource_group_falls_back_to_the_next_key():
+    groups = [{"id": "g1", "name": "Default", "default": True}, {"id": "g2", "name": "dev", "default": False}]
+    with patch.object(ibm, "get_iam_token", side_effect=lambda k: f"tok-{k}"), \
+            patch.object(ibm, "list_resource_groups",
+                         side_effect=[ibm.IBMAuthError("no access", status=403), groups]):
+        group, listed = ibm.resolve_resource_group(["write", "ro"], "acct")
+    assert listed and group["name"] == "Default"
+
+
+def test_resolve_resource_group_by_id_and_not_found():
+    groups = [{"id": "g1", "name": "Default", "default": True}]
+    with patch.object(ibm, "get_iam_token", return_value="tok"), \
+            patch.object(ibm, "list_resource_groups", return_value=groups):
+        assert ibm.resolve_resource_group(["k"], "acct", "g1") == (groups[0], True)
+        assert ibm.resolve_resource_group(["k"], "acct", "nope") == (None, True)
+
+
+def test_resolve_resource_group_reports_when_no_key_can_list():
+    with patch.object(ibm, "get_iam_token", side_effect=ibm.IBMAuthError("bad")):
+        assert ibm.resolve_resource_group(["k", None, ""], "acct") == (None, False)

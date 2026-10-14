@@ -18,6 +18,7 @@ from connectors.ibm_connector.client import (
     global_search,
     list_resource_groups,
     list_vpc_regions,
+    resolve_resource_group,
 )
 from routes.ibm import ibm_bp
 from routes.ibm.helpers import disconnect_all_ibm, remove_ibm_account_connection
@@ -51,7 +52,7 @@ def _account_summaries(user_id: str):
             "accountId": account_id,
             "serviceId": entry.get("service_id"),
             "defaultRegion": entry.get("default_region") or rows[account_id].get("region"),
-            "resourceGroup": entry.get("resource_group"),
+            "resourceGroup": entry.get("resource_group_name") or entry.get("resource_group"),
             "hasReadOnlyKey": bool(entry.get("read_only_api_key")),
         })
     return summaries
@@ -117,13 +118,22 @@ def ibm_connect(user_id):
         logger.warning("IBM connect sanity read failed: %s", e)
         return jsonify({"error": "Could not list resources with the API key"}), 502
 
+    # Code Engine and other resource-group-scoped commands need `ibmcloud login -g`,
+    # so resolve the group's name now: the one given, or the account default.
+    group, listed = resolve_resource_group([api_key, ro_key], account_id, resource_group or None)
+    if resource_group and listed and not group:
+        return jsonify({"error": "Resource group not found in this IBM Cloud account"}), 400
+    if not listed:
+        logger.info("IBM connect could not list resource groups; continuing without one")
+
     try:
         upsert_ibm_account(user_id, account_id, {
             "api_key": api_key,
             "read_only_api_key": ro_key or None,
             "service_id": info.get("iam_id"),
             "default_region": region,
-            "resource_group": resource_group or None,
+            "resource_group": (group or {}).get("id") or resource_group or None,
+            "resource_group_name": (group or {}).get("name"),
         })
     except Exception as e:
         logger.error("Failed to store IBM credentials: %s", type(e).__name__)

@@ -393,7 +393,7 @@ def _build_rca_context(
 
     # Build verified providers list: cloud providers (role-based auth) +
     # SkillRegistry-validated integrations. Never show unverified providers.
-    _cloud_providers = {'aws', 'gcp', 'azure', 'ovh', 'scaleway'}
+    _cloud_providers = {'aws', 'gcp', 'azure', 'ovh', 'scaleway', 'ibm'}
     verified_cloud = []
     if not provider_preference:
         try:

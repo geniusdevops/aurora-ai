@@ -38,6 +38,7 @@ ibmcloud iam service-api-key-create aurora-readonly-key aurora-readonly
 # Write Service ID (used in Agent mode)
 ibmcloud iam service-id-create aurora-agent -d "Aurora agent"
 ibmcloud iam service-policy-create aurora-agent --roles Operator,Writer
+ibmcloud iam service-policy-create aurora-agent --account-management --roles Viewer
 ibmcloud iam service-api-key-create aurora-agent-key aurora-agent`;
 
 interface IbmAccount {

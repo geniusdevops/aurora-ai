@@ -566,3 +566,62 @@ def test_reads_from_any_cli_stay_allowed(is_read_only, command):
 ])
 def test_investigation_reads_stay_allowed(is_read_only, command):
     assert is_read_only(command) is True, command
+
+
+# ---------------------------------------------------------------------------
+# CLIs that name a resource type with no verb, or put the verb last (IBM Cloud).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("command", [
+    "ibmcloud is instances",
+    "ibmcloud is vpcs --output json",
+    "is subnets",
+    "ibmcloud regions",
+    "ibmcloud ks cluster ls --output json",
+    "ibmcloud ks worker ls --cluster c1",
+    "ibmcloud ks cluster config -c c1",
+    "ibmcloud resource search 'service_name:is AND type:security-group'",
+    "ibmcloud ce app list",
+    "ibmcloud is instances --output json | jq '.[].name'",
+    "oc get pods -n app",
+    "oc logs update-cache-xyz",
+])
+def test_verbless_and_suffix_verb_reads_are_allowed(is_read_only, command):
+    assert is_read_only(command) is True, command
+
+
+@pytest.mark.parametrize("command", [
+    # The verb is the last word of the hyphenated operation.
+    "ibmcloud is instance-delete i-1",
+    "ibmcloud is instance-stop i-1",
+    "ibmcloud is vpc-create v1",
+    "is security-group-rule-add sg-1 inbound tcp",
+    # Admin kubeconfigs are credentials, for every provider.
+    "ibmcloud ks cluster config -c c1 --admin",
+    "az aks get-credentials --name c --resource-group r --admin",
+    # Credential reads that are verb-less listings.
+    "ibmcloud iam api-keys",
+    "ibmcloud iam service-api-keys sid",
+    "ibmcloud resource service-keys",
+    "ibmcloud secrets-manager secrets",
+    "ibmcloud is keys",
+    # A hyphenated plural can hide an unknown operation, so it is not a listing.
+    "ibmcloud is security-groups",
+    "aws ec2 frobnicate-instances",
+    # A verb-less listing behind a write or a non-filter pipe stays blocked.
+    "ibmcloud is instances && ibmcloud is instance-delete i-1",
+    "ibmcloud is instances | sh",
+    # More than one group, a value-like last token, or a singular noun.
+    "ibmcloud is instance i-1",
+    "ibmcloud a b instances",
+    "ibmcloud target",
+    "oc delete pod x",
+])
+def test_verbless_and_suffix_verb_writes_stay_blocked(is_read_only, command):
+    assert is_read_only(command) is False, command
+    assert describe_rejection(command)
+
+
+def test_suffix_verb_rejection_names_the_trailing_verb():
+    assert describe_rejection("ibmcloud is instance-delete i-1") == (
+        "'instance-delete' is a write operation (it ends with 'delete')"
+    )

@@ -39,9 +39,11 @@ def ibm_ok():
     with patch.object(mod, "get_iam_token", return_value="tok") as tok, \
             patch.object(mod, "get_account_info", side_effect=account_for), \
             patch.object(mod, "global_search", return_value=[{"crn": "x"}]) as search, \
+            patch.object(mod, "resolve_resource_group",
+                         return_value=({"id": "d" * 32, "name": "Default", "default": True}, True)) as rg, \
             patch.object(mod, "upsert_ibm_account") as upsert, \
             patch.object(mod, "save_connection_metadata", return_value=True) as save:
-        yield {"token": tok, "search": search, "upsert": upsert, "save": save}
+        yield {"token": tok, "search": search, "upsert": upsert, "save": save, "rg": rg}
 
 
 def test_connect_stores_account_and_active_connection(ibm_ok):
@@ -189,3 +191,29 @@ def test_disconnect_reports_partial_failure():
 def test_resource_groups_requires_account_id():
     _, status = _call(mod.ibm_resource_groups, method="GET")
     assert status == 400
+
+
+# --- resource group resolution ------------------------------------------------
+
+def test_connect_stores_default_resource_group_name(ibm_ok):
+    _call(mod.ibm_connect, json={"apiKey": KEY, "readOnlyApiKey": RO_KEY})
+    entry = ibm_ok["upsert"].call_args.args[2]
+    assert entry["resource_group"] == "d" * 32
+    assert entry["resource_group_name"] == "Default"
+    keys, account, wanted = ibm_ok["rg"].call_args.args
+    assert keys == [KEY, RO_KEY] and account == ACCOUNT_A and wanted is None
+
+
+def test_connect_rejects_unknown_resource_group(ibm_ok):
+    ibm_ok["rg"].return_value = (None, True)
+    body, status = _call(mod.ibm_connect, json={"apiKey": KEY, "resourceGroup": "e" * 32})
+    assert status == 400 and "Resource group not found" in body["error"]
+    ibm_ok["upsert"].assert_not_called()
+
+
+def test_connect_continues_when_resource_groups_cannot_be_listed(ibm_ok):
+    ibm_ok["rg"].return_value = (None, False)
+    _body, status = _call(mod.ibm_connect, json={"apiKey": KEY, "resourceGroup": "e" * 32})
+    assert status == 200
+    entry = ibm_ok["upsert"].call_args.args[2]
+    assert entry["resource_group"] == "e" * 32 and entry["resource_group_name"] is None

@@ -138,7 +138,7 @@ def get_tool_capture():
 
 def set_provider_preference(provider: Union[str, List[str]]):
     """Set the provider preference in thread-local context. Can be a single provider or list of providers."""
-    valid_providers = ['gcp', 'azure', 'aws', 'ovh', 'scaleway', 'tailscale']
+    valid_providers = ['gcp', 'azure', 'aws', 'ovh', 'scaleway', 'tailscale', 'ibm']
 
     if isinstance(provider, str):
         if provider not in valid_providers:

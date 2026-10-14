@@ -258,3 +258,27 @@ def list_resource_groups(token: str, account_id: str) -> List[Dict[str, Any]]:
         for g in body.get("resources") or []
         if g.get("id")
     ]
+
+
+def resolve_resource_group(
+    api_keys: Iterable[str], account_id: str, wanted_id: Optional[str] = None
+) -> tuple[Optional[Dict[str, Any]], bool]:
+    """Find a resource group (by id, or the account default) using the first key that can list them.
+
+    Returns ``(group, listed)``. ``listed`` is False when no key could list
+    resource groups (e.g. a Service ID without account-management access), so
+    callers can tell "not found" from "could not check".
+    """
+    for key in api_keys:
+        if not key:
+            continue
+        try:
+            groups = list_resource_groups(get_iam_token(key), account_id)
+        except IBMError as e:
+            logger.info("Could not list IBM resource groups with one key: %s", type(e).__name__)
+            continue
+        for group in groups:
+            if (wanted_id and group["id"] == wanted_id) or (not wanted_id and group["default"]):
+                return group, True
+        return None, True
+    return None, False

@@ -280,6 +280,7 @@ def terminal_exec(
         ('kubectl ', lambda cmd: (None, cmd)),  # Inherit user's provider (aurora/gcp/aws/azure)
         ('aws ', lambda cmd: ('aws', cmd[4:])),
         ('az ', lambda cmd: ('azure', cmd[3:])),
+        ('ibmcloud ', lambda cmd: ('ibm', cmd[9:])),
     ]
     
     # Route cloud commands to cloud_exec

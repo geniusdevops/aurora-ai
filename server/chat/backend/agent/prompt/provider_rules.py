@@ -7,7 +7,7 @@ from typing import Any, List, Optional, Tuple
 # Providers not in this set (e.g. grafana) are observation-only and should
 # never be passed as the provider argument to cloud_exec.
 CLOUD_EXEC_PROVIDERS = frozenset({
-    "gcp", "aws", "azure", "ovh", "scaleway", "tailscale", "flyio",
+    "gcp", "aws", "azure", "ovh", "scaleway", "tailscale", "flyio", "ibm",
 })
 
 
@@ -112,6 +112,15 @@ def build_provider_context_segment(
                     "  3. For ALL subsequent calls, pass `account_id='<SUBSCRIPTION_ID>'` to target only that subscription. Example: cloud_exec('azure', 'vm list', account_id='00000000-0000-0000-0000-000000000000')\n"
                     "  4. NEVER keep querying all subscriptions after you've identified the relevant one -- it wastes time and adds noise.\n"
                     "- Fetch the Azure subscription before writing Terraform: cloud_exec('azure', \"account show --query 'id' -o tsv\", account_id='<SUBSCRIPTION_ID>'). Use the concrete subscription ID in code.\n"
+                )
+            elif provider == "ibm":
+                parts.append(
+                    "- **MULTI-ACCOUNT IBM CLOUD**: You may have multiple IBM Cloud accounts connected.\n"
+                    "  1. Your FIRST cloud_exec('ibm', ...) call (without account_id) automatically queries ALL accounts in parallel and returns `results_by_account`.\n"
+                    "  2. Review the per-account results to identify which account(s) are relevant.\n"
+                    "  3. For ALL subsequent calls, pass `account_id='<ACCOUNT_ID>'` (the 32-character IBM account ID). Example: cloud_exec('ibm', 'is instances', account_id='<ACCOUNT_ID>')\n"
+                    "  4. NEVER keep querying all accounts after you've identified the relevant one -- it wastes time and adds noise.\n"
+                    "- For IKS/ROKS clusters, fetch the kubeconfig first with cloud_exec('ibm', 'ks cluster config -c <CLUSTER>', account_id='<ACCOUNT_ID>'), then run cloud_exec('ibm', 'kubectl ...') (also for ROKS).\n"
                 )
     # Provider-specific reference guides are now in skill files.
     # The agent loads them on-demand via load_skill().

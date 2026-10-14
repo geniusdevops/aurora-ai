@@ -15,7 +15,7 @@ metadata:
 
 The correct tool names for RCA investigation calls are:
 
-- **`cloud_exec`** -- Execute cloud provider CLI commands (GCP, AWS, Azure, OVH, Scaleway)
+- **`cloud_exec`** -- Execute cloud provider CLI commands (GCP, AWS, Azure, OVH, Scaleway, IBM Cloud)
 - **`terminal_exec`** -- Execute terminal/shell commands (kubectl with kubeconfig, SSH, etc.)
 - **`on_prem_kubectl`** -- Execute kubectl commands against on-premise clusters (requires cluster_id)
 
