@@ -22,6 +22,7 @@ cloud_exec(provider, 'command') - Execute cloud CLI commands directly:
    - `cloud_exec('azure', 'command')` - Execute ANY az command (full Azure CLI access)
    - `cloud_exec('ovh', 'command')` - Execute ANY ovhcloud command (full OVHcloud CLI access)
    - `cloud_exec('scaleway', 'command')` - Execute ANY scw command (full Scaleway CLI access)
+   - `cloud_exec('ibm', 'command')` - Execute ibmcloud commands, plus kubectl/oc on IBM clusters
    - This is FASTER and SIMPLER than Terraform for single resources
    - This is the SOURCE OF TRUTH for current cloud state
 

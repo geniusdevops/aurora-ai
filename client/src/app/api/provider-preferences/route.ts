@@ -5,7 +5,7 @@ import { isOvhEnabled } from '@/lib/feature-flags';
 const API_BASE_URL = process.env.BACKEND_URL
 
 function getValidProviders(): string[] {
-  const providers = ['gcp', 'azure', 'aws', 'scaleway', 'tailscale', 'grafana', 'datadog', 'cloudbees', 'newrelic', 'cloudflare', 'flyio'];
+  const providers = ['gcp', 'azure', 'aws', 'scaleway', 'tailscale', 'grafana', 'datadog', 'cloudbees', 'newrelic', 'cloudflare', 'flyio', 'ibm'];
   if (isOvhEnabled()) {
     providers.push('ovh');
   }

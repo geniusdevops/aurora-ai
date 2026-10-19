@@ -19,6 +19,7 @@ Fail-open on DB error: if rules cannot be fetched, commands are allowed.
 """
 
 import collections
+import json
 import logging
 import re
 import shlex
@@ -678,6 +679,11 @@ def get_policy_templates() -> List[dict]:
                 # Fly.io
                 {"priority": 139, "pattern": r"^(fly|flyctl)\s+(apps\s+list|status|machine\s+(list|status)|logs|checks|releases|certs\s+list|ips\s+list|volumes?\s+list|scale\s+show|platform|services)\b",
                  "description": "Fly.io read-only operations"},
+                # IBM Cloud -- read verbs, verb-less plural listings, kubeconfig fetch
+                {"priority": 138, "pattern": r"^ibmcloud\s+.+\b(ls|list|get|show|search)\b",
+                 "description": "IBM Cloud read-only operations"},
+                {"priority": 137, "pattern": r"^ibmcloud\s+(is\s+[a-z-]+s|regions|account\s+show|resource\s+(service-instances|groups)|iam\s+service-ids|(ks|oc)\s+cluster\s+config)(\s|$)",
+                 "description": "IBM Cloud listings and IKS/ROKS kubeconfig retrieval"},
                 # Terraform / IaC read-only
                 {"priority": 130, "pattern": r"^(terraform|tofu)\s+(init|plan|validate|fmt|output|show|state\s+(list|show|pull)|version)\b",
                  "description": "Non-destructive Terraform operations"},
@@ -761,6 +767,13 @@ def get_policy_templates() -> List[dict]:
                 # Fly.io
                 {"priority": 139, "pattern": r"^(fly|flyctl)\s+(apps\s+list|status|machine\s+(list|status|restart|stop|start)|logs|checks|releases|certs\s+list|ips\s+list|volumes?\s+list|scale\s+(show|count)|platform|ssh|proxy|config\s+show|secrets\s+list|services)\b",
                  "description": "Fly.io standard operations"},
+                # IBM Cloud -- read verbs, verb-less plural listings, kubeconfig fetch
+                {"priority": 138, "pattern": r"^ibmcloud\s+.+\b(ls|list|get|show|search)\b",
+                 "description": "IBM Cloud read-only operations"},
+                {"priority": 137, "pattern": r"^ibmcloud\s+(is\s+[a-z-]+s|regions|account\s+show|resource\s+(service-instances|groups)|iam\s+service-ids|(ks|oc)\s+cluster\s+config)(\s|$)",
+                 "description": "IBM Cloud listings and IKS/ROKS kubeconfig retrieval"},
+                {"priority": 136, "pattern": r"^ibmcloud\s+(is\s+instance-(start|stop|reboot)|(ks|oc)\s+worker\s+(reboot|reload))\b",
+                 "description": "IBM Cloud instance start/stop/reboot and IKS/ROKS worker reboot/reload"},
                 # SSH access
                 {"priority": 135, "pattern": r"^(ssh|scp|sftp)\s",
                  "description": "SSH, SCP, and SFTP access"},
@@ -827,6 +840,9 @@ def get_policy_templates() -> List[dict]:
                 # Fly.io
                 {"priority": 139, "pattern": r"^(fly|flyctl)\s+\w",
                  "description": "All Fly.io operations"},
+                # IBM Cloud
+                {"priority": 138, "pattern": r"^ibmcloud\s+\w",
+                 "description": "All IBM Cloud operations"},
                 # SSH
                 {"priority": 135, "pattern": r"^(ssh|scp|sftp)\s",
                  "description": "SSH, SCP, and SFTP access"},
@@ -863,6 +879,61 @@ def get_policy_templates() -> List[dict]:
 
 def invalidate_cache(org_id: str) -> None:
     _cache.pop(org_id, None)
+
+
+def backfill_template_rules(conn, pattern_prefix: str) -> int:
+    """Add a built-in template's rules that start with *pattern_prefix* to orgs using it.
+
+    Template rules are copied into an org when the template is applied, so rules
+    added to a template later (a new provider) never reach orgs that applied it
+    earlier, and their allowlist then denies every command for that provider.
+    This inserts only the missing rules matching *pattern_prefix*, with
+    source='template', for orgs whose active template is that built-in one.
+    Idempotent via the (org_id, mode, pattern, source) unique key; rows an admin
+    edited or deleted are not touched beyond re-adding a deleted template rule
+    for the new provider. Returns the number of rows inserted.
+    """
+    from utils.auth.stateless_auth import _set_org_rls
+
+    templates = {t["id"]: t for t in get_policy_templates()}
+    inserted = 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM organizations")
+        org_ids = [row[0] for row in cur.fetchall()]
+        for org_id in org_ids:
+            _set_org_rls(cur, org_id)
+            cur.execute(
+                "SELECT preference_value FROM user_preferences "
+                "WHERE org_id = %s AND user_id = %s AND preference_key = %s",
+                (org_id, f"__org__{org_id}", "command_policy_active_template"),
+            )
+            row = cur.fetchone()
+            if not row:
+                continue
+            active = row[0]
+            if isinstance(active, str):
+                try:
+                    active = json.loads(active)
+                except ValueError:
+                    pass
+            tpl = templates.get(active)
+            if not tpl:
+                continue
+            for mode_key in ("allow", "deny"):
+                for rule in tpl[mode_key]:
+                    if not rule["pattern"].startswith(pattern_prefix):
+                        continue
+                    cur.execute(
+                        "INSERT INTO org_command_policies "
+                        "(org_id, mode, pattern, description, priority, updated_by, source) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, 'template') "
+                        "ON CONFLICT (org_id, mode, pattern, source) DO NOTHING",
+                        (org_id, mode_key, rule["pattern"], rule["description"],
+                         rule["priority"], "system:backfill"),
+                    )
+                    inserted += cur.rowcount
+    conn.commit()
+    return inserted
 
 
 def seed_default_command_policy(org_id: str, created_by: str) -> None:

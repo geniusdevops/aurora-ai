@@ -57,7 +57,7 @@ class FindingRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-_CLOUD_PROVIDERS = frozenset({"aws", "gcp", "azure", "ovh", "scaleway"})
+_CLOUD_PROVIDERS = frozenset({"aws", "gcp", "azure", "ovh", "scaleway", "ibm"})
 
 
 def render_brief(

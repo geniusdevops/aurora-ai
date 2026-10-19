@@ -50,6 +50,8 @@ export function providerForCommand(command: string): string | null {
       return 'gcp';
     case 'az':
       return 'azure';
+    case 'ibmcloud':
+      return 'ibm';
     case 'kubectl':
     case 'helm':
       return 'kubectl';

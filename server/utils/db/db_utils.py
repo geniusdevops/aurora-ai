@@ -3494,6 +3494,18 @@ def initialize_tables():
                 logging.warning("Error adding password reset columns to users: %s", e)
                 conn.rollback()
 
+            # Backfill: orgs that applied a built-in command-policy template before
+            # IBM Cloud rules existed would otherwise deny every `ibmcloud` command.
+            # Non-fatal and idempotent.
+            try:
+                from utils.auth.command_policy import backfill_template_rules
+                added = backfill_template_rules(conn, r"^ibmcloud")
+                if added:
+                    logging.info("Added %d IBM Cloud command-policy template rule(s) to existing orgs.", added)
+            except Exception as e:
+                logging.warning("Error backfilling IBM Cloud command-policy rules: %s", e)
+                conn.rollback()
+
             # Create k8s_clusters view (after org_id migration so the column exists)
             # DROP first because CREATE OR REPLACE VIEW cannot remove columns from an existing view
             try:

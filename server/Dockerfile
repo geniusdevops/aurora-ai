@@ -214,6 +214,19 @@ RUN curl -fsSL --proto '=https' --proto-redir '=https' https://tailscale.com/ins
 ARG FLYCTL_VERSION=0.4.57
 RUN set -o pipefail && curl -fsSL --proto '=https' --proto-redir '=https' "https://fly.io/install.sh" | FLYCTL_INSTALL="/usr/local" FLYCTL_VERSION=${FLYCTL_VERSION} sh
 
+# Install IBM Cloud CLI (ibmcloud) and plugins for the IBM Cloud connector.
+# Plugins go to a shared, read-only directory; each cloud_exec call builds its
+# own IBMCLOUD_HOME that links the plugin binaries and copies the small files
+# the plugins write (utils/cloud/ibm_cli.py, Phase 0 spike check 3c).
+ARG IBMCLOUD_PLUGINS="vpc-infrastructure container-service code-engine cloud-databases cloud-object-storage"
+RUN set -o pipefail && curl -fsSL --proto '=https' --proto-redir '=https' https://clis.cloud.ibm.com/install/linux | sh && \
+    IBMCLOUD_HOME=/tmp/ibmcloud-build && export IBMCLOUD_HOME IBMCLOUD_VERSION_CHECK=false && \
+    for p in $IBMCLOUD_PLUGINS; do ibmcloud plugin install "$p" -f; done && \
+    mkdir -p /opt/ibmcloud && mv /tmp/ibmcloud-build/.bluemix/plugins /opt/ibmcloud/plugins && \
+    rm -rf /tmp/ibmcloud-build /opt/ibmcloud/plugins/.cache && \
+    chmod -R a+rX,go-w /opt/ibmcloud
+ENV AURORA_IBMCLOUD_PLUGINS=/opt/ibmcloud/plugins
+
 # Install Node.js for MCP servers
 RUN curl -fsSL --proto '=https' --proto-redir '=https' https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \

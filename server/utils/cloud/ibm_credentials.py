@@ -109,6 +109,18 @@ def upsert_ibm_account(user_id: str, account_id: str, entry: Dict[str, Any]) -> 
     logger.info("[IBM-CREDS] Stored account=%s (total=%d)", hash_for_log(account_id), len(accounts))
 
 
+def update_ibm_account_fields(user_id: str, account_id: str, fields: Dict[str, Any]) -> bool:
+    """Merge non-secret fields into one stored account. Returns False if it is gone."""
+    with _org_credentials_lock(user_id):
+        accounts = load_ibm_accounts(user_id)
+        entry = accounts.get(account_id)
+        if entry is None:
+            return False
+        entry.update({k: v for k, v in fields.items() if v is not None})
+        store_tokens_in_db(user_id, {"accounts": accounts}, PROVIDER)
+    return True
+
+
 def remove_ibm_account(user_id: str, account_id: str) -> Optional[Dict[str, Any]]:
     """Remove one account; deletes the secret when it was the last one.
 

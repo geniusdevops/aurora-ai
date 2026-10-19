@@ -30,10 +30,11 @@ TERMINAL_STATUSES = frozenset(
 PROVIDER_CLI = {
     "aws": "aws", "gcp": "gcloud", "gcloud": "gcloud", "azure": "az", "az": "az",
     "ovh": "ovhcloud", "ovhcloud": "ovhcloud", "scaleway": "scw", "scw": "scw",
+    "ibm": "ibmcloud", "ibmcloud": "ibmcloud",
 }
 RECOGNIZED_CLI_PREFIXES = (
-    "aws ", "gcloud ", "gsutil ", "bq ", "az ", "ovhcloud ", "scw ",
-    "kubectl ", "helm ", "docker ",
+    "aws ", "gcloud ", "gsutil ", "bq ", "az ", "ovhcloud ", "scw ", "ibmcloud ",
+    "kubectl ", "oc ", "helm ", "docker ",
 )
 
 

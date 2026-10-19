@@ -1070,6 +1070,11 @@ def _augment_execution_capability(
     if results.get("kubectl", {}).get("connected"):
         results["kubectl"]["canExecute"] = True
 
+    # IBM: like GCP/Azure, read-only is a runtime downgrade (the read-only key is
+    # used in Ask mode); a connected account's main key is write-capable.
+    if results.get("ibm", {}).get("connected"):
+        results["ibm"]["canExecute"] = True
+
 
 def _check_onprem(user_id: str, org_id: str) -> Dict[str, Any]:
     try:

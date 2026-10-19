@@ -100,6 +100,13 @@ const logos = {
       onError={(e) => console.error('Failed to load OVH logo:', e)}
     />
   ),
+  ibm: (
+    <img
+      src="/ibm.svg"
+      className="w-4 h-4 min-w-4 min-h-4 object-contain"
+      alt="IBM Cloud"
+    />
+  ),
   scaleway: (
     <img
       src="/scaleway.svg"
@@ -555,6 +562,9 @@ const getLogoForCommand = (command: string | any, toolName: string, provider?: s
   }
   if (cmd.startsWith('scw ') || cmd.includes('scaleway')) {
     return 'scaleway'
+  }
+  if (cmd.startsWith('ibmcloud ')) {
+    return 'ibm'
   }
 
   // Container and orchestration tools

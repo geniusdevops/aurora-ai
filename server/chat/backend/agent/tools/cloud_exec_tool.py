@@ -54,6 +54,8 @@ def _normalize_cloud_exec_provider(raw: Optional[str]) -> str:
         return "scaleway"
     if p in ("fly", "flyctl"):
         return "flyio"
+    if p in ("ibmcloud", "ibm-cloud"):
+        return "ibm"
     return p
 
 
@@ -1195,6 +1197,176 @@ def setup_flyio_environment_isolated(user_id: str, selected_org: str | None = No
         return False, None, None, None
 
 
+# Kubernetes CLIs run against IBM clusters through cloud_exec('ibm', ...). They
+# use the kubeconfig from `ibmcloud ks|oc cluster config`, need no ibmcloud
+# login, and must not get the `ibmcloud` prefix.
+_IBM_K8S_CLIS = ("kubectl", "oc", "helm")
+# `ibmcloud <group> <noun>` groups whose commands all accept `--output json`.
+_IBM_JSON_PLUGINS = ("is",)
+_IBM_RESOURCE_JSON_OPS = ("service-instances", "service-instance", "groups", "group", "search")
+# auth_method value setup_ibm_environment_isolated returns when Ask mode has no read-only key.
+IBM_READ_ONLY_KEY_MISSING = "read_only_key_missing"
+
+
+def _ibm_first_token(command: str) -> str:
+    try:
+        return shlex.split(command)[0].lower() if command.strip() else ""
+    except ValueError:
+        return ""
+
+
+def _build_ibm_command(command: str) -> str:
+    """Prefix `ibmcloud` when missing and request JSON output where it is supported."""
+    cmd = command.strip()
+    if _ibm_first_token(cmd) in _IBM_K8S_CLIS:
+        return cmd
+    if _ibm_first_token(cmd) != "ibmcloud":
+        cmd = f"ibmcloud {cmd}"
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return cmd
+    if "--output" in tokens or any(t.startswith("--output=") for t in tokens):
+        return cmd
+    group = tokens[1] if len(tokens) > 1 else ""
+    wants_json = (
+        group in _IBM_JSON_PLUGINS
+        or any(t in ("ls", "list", "get") for t in tokens[2:])
+        or (group == "resource" and len(tokens) > 2 and tokens[2] in _IBM_RESOURCE_JSON_OPS)
+    )
+    return f"{cmd} --output json" if wants_json else cmd
+
+
+def _ibm_resource_group(user_id: str, account_id: str, creds: dict) -> Optional[str]:
+    """Resource group to target at login (name preferred), resolving it once if unknown.
+
+    Accounts connected before resource groups were resolved at connect time have
+    no name stored; look it up once and remember the outcome either way.
+    """
+    if creds.get("resource_group_name"):
+        return creds["resource_group_name"]
+    if creds.get("resource_group_checked"):
+        return creds.get("resource_group")
+    from connectors.ibm_connector.client import resolve_resource_group
+    from utils.cloud.ibm_credentials import load_ibm_accounts, update_ibm_account_fields
+    entry = load_ibm_accounts(user_id).get(account_id) or {}
+    group, _listed = resolve_resource_group(
+        [entry.get("api_key"), entry.get("read_only_api_key")], account_id, creds.get("resource_group"),
+    )
+    try:
+        update_ibm_account_fields(user_id, account_id, {
+            "resource_group": (group or {}).get("id"),
+            "resource_group_name": (group or {}).get("name"),
+            "resource_group_checked": True,
+        })
+    except Exception as e:
+        logger.warning("Could not save IBM resource group for account %s: %s", hash_for_log(account_id), type(e).__name__)
+    return (group or {}).get("name") or creds.get("resource_group")
+
+
+def setup_ibm_environment_isolated(user_id: str, account_id: str | None = None):
+    """Set up an isolated IBM Cloud environment for one account.
+
+    Returns ``(success, account_id, auth_method, command_env, login_env, error)``.
+    ``command_env`` carries no API key; ``login_env`` adds it for the login step
+    only (utils.cloud.ibm_cli). In Ask mode the account's read-only key is used,
+    and an account without one fails closed: there is no IAM equivalent of the
+    AWS session policy to fall back on.
+    """
+    from utils.cloud import ibm_cli
+    from utils.cloud.ibm_credentials import IBMReadOnlyCredentialMissing, get_ibm_account_credentials
+    from utils.db.connection_utils import get_all_user_connections
+
+    try:
+        conns = get_all_user_connections(user_id, "ibm")
+        if account_id:
+            conn = next((c for c in conns if c.get("account_id") == account_id), None)
+            if not conn:
+                return False, account_id, None, None, None, f"IBM Cloud account {account_id} is not connected."
+        elif conns:
+            conn = conns[0]
+        else:
+            return False, None, None, None, None, "No IBM Cloud account is connected. Connect one on the IBM Cloud connector page."
+        account_id = conn["account_id"]
+
+        read_only = ModeAccessController.is_read_only_mode(get_mode_from_context())
+        try:
+            creds = get_ibm_account_credentials(user_id, account_id, read_only=read_only)
+        except IBMReadOnlyCredentialMissing as e:
+            return False, account_id, IBM_READ_ONLY_KEY_MISSING, None, None, str(e)
+        if not creds or not creds.get("api_key"):
+            return False, account_id, None, None, None, (
+                f"Stored credentials for IBM Cloud account {account_id} are missing; reconnect it."
+            )
+
+        region = creds.get("default_region") or conn.get("region") or "us-south"
+        command_env, login_env = ibm_cli.build_envs(
+            base_env={
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": _ISOLATED_HOME,
+                "USER": os.environ.get("USER", ""),
+            },
+            home=ibm_cli.new_home_path(),
+            region=region,
+            api_key=creds["api_key"],
+            resource_group=_ibm_resource_group(user_id, account_id, creds),
+        )
+        logger.info("IBM isolated environment configured (account %s, region %s, read_only=%s)",
+                    hash_for_log(account_id), region, read_only)
+        return True, account_id, "api_key", command_env, login_env, None
+    except Exception as e:
+        logger.error("Failed to setup IBM Cloud environment: %s", type(e).__name__)
+        return False, account_id, None, None, None, None
+
+
+def _ibm_setup_failure(error: Optional[str], command: str, reason: Optional[str] = None) -> str:
+    """JSON error for a failed IBM setup. Ask mode without a read-only key is not a connection problem."""
+    if reason == IBM_READ_ONLY_KEY_MISSING:
+        return json.dumps({
+            "success": False,
+            "error": error,
+            "code": "READ_ONLY_CREDENTIAL_MISSING",
+            "final_command": command,
+            "provider": "ibm",
+        })
+    return _credential_setup_failure(
+        error or "Failed to set up the IBM Cloud environment. Please connect your IBM Cloud account first.",
+        command,
+        requires_connection=True,
+    )
+
+
+def _ibm_output(result) -> str:
+    """IBM CLIs split failures across streams: `ks` writes FAILED to stderr, login writes the IAM code to stdout."""
+    parts = [s.strip() for s in (result.stdout, result.stderr) if s and s.strip()]
+    return "\n".join(parts)
+
+
+def _ibm_login(login_env: dict):
+    """Create the per-command IBMCLOUD_HOME and log in. Returns the CompletedProcess."""
+    from utils.cloud import ibm_cli
+    return terminal_run(
+        ibm_cli.prepare_and_login_argv(),
+        capture_output=True, text=True, timeout=120,
+        env=login_env, trusted=True,
+    )
+
+
+def _ibm_cleanup(command_env: Optional[dict]) -> None:
+    """Log out and delete the per-command IBMCLOUD_HOME (it holds IAM tokens)."""
+    if not command_env:
+        return
+    from utils.cloud import ibm_cli
+    try:
+        terminal_run(
+            ibm_cli.cleanup_argv(),
+            capture_output=True, text=True, timeout=30,
+            env=command_env, trusted=True,
+        )
+    except Exception as e:
+        logger.warning("IBM Cloud home cleanup failed: %s", type(e).__name__)
+
+
 def get_command_timeout(command: str, user_timeout: int = None) -> int:
     """Determine timeout for a command. Use user_timeout if provided, else adapt based on command type."""
     if user_timeout is not None:
@@ -1577,6 +1749,98 @@ def _cloud_exec_azure_multi_subscription(
     })
 
 
+def _run_ibm_on_account(user_id: str, conn: dict, command: str, timeout: Optional[int]) -> dict:
+    """Run one command against one IBM account: private home, login, command, cleanup."""
+    account_id = conn.get("account_id", "unknown")
+    ok, account_id, reason, command_env, login_env, error = setup_ibm_environment_isolated(user_id, account_id)
+    if not ok:
+        entry = {"account_id": account_id, "success": False,
+                 "error": error or "Failed to set up the IBM Cloud environment"}
+        if reason == IBM_READ_ONLY_KEY_MISSING:
+            entry["code"] = "READ_ONLY_CREDENTIAL_MISSING"
+        return entry
+    cmd = _build_ibm_command(command)
+    try:
+        login = _ibm_login(login_env)
+        if login.returncode != 0:
+            return {"account_id": account_id, "success": False,
+                    "error": f"IBM Cloud login failed: {_ibm_output(login)[:500]}"}
+        try:
+            cmd_args = shlex.split(cmd)
+        except ValueError as e:
+            return {"account_id": account_id, "success": False, "error": f"Command parsing failed: {e}"}
+        result = terminal_run(cmd_args, capture_output=True, text=True,
+                              timeout=get_command_timeout(cmd, timeout), env=command_env)
+        return {
+            "account_id": account_id,
+            "region": command_env.get("IBMCLOUD_REGION"),
+            "success": result.returncode == 0,
+            "output": result.stdout.strip() if result.returncode == 0 else _ibm_output(result),
+            "return_code": result.returncode,
+        }
+    except Exception as e:
+        logger.error("IBM multi-account exec failed for %s: %s", hash_for_log(account_id), type(e).__name__)
+        return {"account_id": account_id, "success": False, "error": str(e)[:300]}
+    finally:
+        _ibm_cleanup(command_env)
+
+
+def _cloud_exec_ibm_multi_account(
+    user_id: str,
+    connections: list,
+    command: str,
+    timeout: Optional[int] = None,
+    fn_start: float = 0,
+) -> str:
+    """Run an `ibmcloud` command across every connected IBM account and merge the results.
+
+    Unlike Azure, each IBM account has its own API key, so every worker needs its
+    own home and login; nothing is shared. Concurrency is capped at 5 because each
+    account costs three execs (login, command, cleanup) in the user's pod.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    built = _build_ibm_command(command)
+    current_mode = get_mode_from_context()
+    allowed, read_only_message = ModeAccessController.ensure_cloud_command_allowed(
+        current_mode, is_read_only_command(built), built, describe_rejection(built),
+    )
+    if not allowed:
+        logger.warning(read_only_message)
+        return json.dumps({
+            "success": False,
+            "error": read_only_message,
+            "code": "READ_ONLY_MODE",
+            "multi_account": True,
+            "command": built,
+            "provider": "ibm",
+        })
+
+    account_results = {}
+    with ThreadPoolExecutor(max_workers=min(len(connections), 5)) as pool:
+        # Copy the context per task, as the AWS/Azure fan-outs do: the guardrail
+        # judge and get_mode_from_context() need the caller's context.
+        futures = [
+            pool.submit(contextvars.copy_context().run, _run_ibm_on_account, user_id, c, command, timeout)
+            for c in connections
+        ]
+        for future in as_completed(futures):
+            res = future.result()
+            account_results[res.pop("account_id")] = res
+
+    elapsed = time.perf_counter() - fn_start if fn_start else 0
+    logger.info("TIME: cloud_exec IBM multi-account (%d accounts) completed in %.2fs",
+                len(connections), elapsed)
+    return json.dumps({
+        "success": all(r.get("success") for r in account_results.values()),
+        "multi_account": True,
+        "accounts_queried": len(account_results),
+        "command": built,
+        "provider": "ibm",
+        "results_by_account": account_results,
+    })
+
+
 def cloud_exec(provider: str, command: str, user_id: Optional[str] = None, session_id: Optional[str] = None, provider_preference: Optional[str] = None, timeout: Optional[int] = None, output_file: Optional[str] = None, account_id: Optional[str] = None) -> str:
     """Run arbitrary command against *provider* (gcloud/kubectl/gsutil for GCP, aws/kubectl for AWS).
 
@@ -1635,6 +1899,8 @@ Security & Compliance
     # Bound before the try so the cleanup in finally can always read it, including
     # on paths that return before the provider setup block below.
     isolated_env = None
+    # Set once an IBM login may have created a per-command IBMCLOUD_HOME.
+    ibm_cleanup_env = None
     
     try:
         fn_start = time.perf_counter()  # Start timing for entire execution
@@ -1684,8 +1950,12 @@ Security & Compliance
         # the subcommand without the provider prefix, e.g. "ecs list-clusters").
         _CLI_PREFIX = {"aws": "aws", "gcp": "gcloud", "azure": "az",
                        "scaleway": "scw", "ovh": "ovhcloud", "tailscale": "tailscale",
-                       "flyio": "fly"}
+                       "flyio": "fly", "ibm": "ibmcloud"}
         prefix = _CLI_PREFIX.get(provider.lower(), "")
+        # `cloud_exec('ibm', 'oc get pods')` must be gated as `oc get pods`, not
+        # `ibmcloud oc get pods` (a different, real command).
+        if provider.lower() == "ibm" and _ibm_first_token(command) in _IBM_K8S_CLIS:
+            prefix = ""
         gated_cmd = f"{prefix} {command}" if prefix and not command.strip().startswith(prefix) else command
         from utils.auth.command_gate import gate_command
         gate = gate_command(user_id=user_id, tool_name="cloud_exec", command=gated_cmd)
@@ -1783,6 +2053,26 @@ Security & Compliance
             if not success:
                 return _credential_setup_failure("Failed to setup Tailscale environment. Please connect your Tailscale account first.", command, requires_connection=True)
             resource_id = tailnet
+        elif normalized_provider == 'ibm':
+            # IBM multi-account: fan out `ibmcloud` commands when no account was
+            # pinned. kubectl/oc/helm use the kubeconfig of one cluster and never fan out.
+            if not account_id and _ibm_first_token(original_command) not in _IBM_K8S_CLIS:
+                from utils.db.connection_utils import get_all_user_connections
+                ibm_conns = get_all_user_connections(user_id, "ibm") if user_id else []
+                if len(ibm_conns) > 1:
+                    return _cloud_exec_ibm_multi_account(
+                        user_id=user_id,
+                        connections=ibm_conns,
+                        command=original_command,
+                        timeout=timeout,
+                        fn_start=fn_start,
+                    )
+            success, ibm_account, auth_method, isolated_env, ibm_login_env, ibm_error = (
+                setup_ibm_environment_isolated(user_id, account_id)
+            )
+            if not success:
+                return _ibm_setup_failure(ibm_error, command, auth_method)
+            resource_id = ibm_account
         elif normalized_provider == 'flyio':
             # Fly.io isolated setup - uses FLY_API_TOKEN env var
             success, org_slug, auth_method, isolated_env = setup_flyio_environment_isolated(user_id, selected_project_id)
@@ -1882,6 +2172,10 @@ Security & Compliance
                     resource_name = f"Scaleway {region} - {resource_id}" if region else f"Scaleway - {resource_id}"
                 else:
                     resource_name = f"Scaleway {region}" if region else "Scaleway"
+
+            elif provider.lower() == 'ibm':
+                ibm_region = isolated_env.get("IBMCLOUD_REGION", "")
+                resource_name = f"IBM Cloud {ibm_region} - {resource_id}" if ibm_region else f"IBM Cloud - {resource_id}"
 
             elif provider.lower() == 'tailscale':
                 # Use tailnet name as resource name
@@ -2012,6 +2306,9 @@ Security & Compliance
         elif provider.lower() == 'flyio':
             supported_cli_tools = ['fly', 'flyctl']
             default_cli = 'fly'
+        elif provider.lower() == 'ibm':
+            supported_cli_tools = ['ibmcloud', *_IBM_K8S_CLIS]
+            default_cli = 'ibmcloud'
         else:
             supported_cli_tools = []
             default_cli = ''
@@ -2034,6 +2331,8 @@ Security & Compliance
             command = f"scw {command}"
         elif provider.lower() == 'flyio' and cli_tool == 'fly' and not command.strip().startswith(('fly ', 'flyctl ')):
             command = f"fly {command}"
+        elif provider.lower() == 'ibm' and cli_tool == 'ibmcloud':
+            command = _build_ibm_command(command)
 
         # Apply provider-specific convenience flags
         if provider.lower() in ['gcp', 'gcloud'] and cli_tool == 'gcloud':
@@ -2226,6 +2525,33 @@ Security & Compliance
             
             # Now execute the user command with preserved arguments
             exec_command = command_args
+        elif provider.lower() == 'ibm' and cli_tool == 'ibmcloud':
+            # Creates a private IBMCLOUD_HOME where the command runs and logs in
+            # with the API key; the user command then runs on that session, without
+            # the key in its environment. Cleanup (finally) removes the home.
+            ibm_cleanup_env = isolated_env
+            try:
+                login_result = _ibm_login(ibm_login_env)
+            except Exception as login_error:
+                logger.error("IBM Cloud login error: %s", type(login_error).__name__)
+                return json.dumps({
+                    "success": False,
+                    "error": f"IBM Cloud login error: {type(login_error).__name__}",
+                    "command": command,
+                    "final_command": command,
+                    "provider": "ibm",
+                })
+            if login_result.returncode != 0:
+                login_output = _ibm_output(login_result)[:500]
+                logger.error("IBM Cloud login failed (rc=%s)", login_result.returncode)
+                return json.dumps({
+                    "success": False,
+                    "error": f"IBM Cloud login failed: {login_output}",
+                    "command": command,
+                    "final_command": command,
+                    "provider": "ibm",
+                })
+            exec_command = command_args
         else:
             # Use direct command for GCP and AWS
             exec_command = command_args
@@ -2359,6 +2685,11 @@ Security & Compliance
                         chat_output = sanitize_command_output(result.stdout)
                 except json.JSONDecodeError:
                     chat_output = sanitize_command_output(result.stdout)
+            # IBM writes FAILED + message to stderr for plugins but the IAM code to
+            # stdout for login, so show both streams.
+            elif provider.lower() == "ibm":
+                ibm_text = _ibm_output(result)
+                chat_output = sanitize_command_output(ibm_text) if ibm_text else ""
             # For Scaleway, combine stdout and stderr for better error visibility
             elif provider.lower() == "scaleway":
                 error_parts = []
@@ -2807,5 +3138,8 @@ Security & Compliance
         if (isinstance(isolated_env, dict) and isolated_env.get("AZURE_CONFIG_DIR")
                 and not azure_login_cache.is_cached_dir(isolated_env["AZURE_CONFIG_DIR"])):
             shutil.rmtree(isolated_env["AZURE_CONFIG_DIR"], ignore_errors=True)
+        # The IBM home holds IAM access/refresh tokens and lives where the command
+        # ran (the user's pod under isolation), so it is removed there.
+        _ibm_cleanup(ibm_cleanup_env)
 
 cloud_exec_tool = StructuredTool.from_function(cloud_exec) 

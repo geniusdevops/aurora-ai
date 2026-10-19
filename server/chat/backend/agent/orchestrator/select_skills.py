@@ -19,7 +19,7 @@ _SUBAGENT_SKILL_BUDGET = 4_000  # tokens — budget for skill bodies appended to
 # First-class cloud providers (handled outside the SKILL.md system via direct
 # user_tokens / user_connections). cloud_exec is also valid for these even
 # when no skill claims it.
-_CLOUD_PROVIDERS = frozenset({"aws", "gcp", "azure", "ovh", "scaleway"})
+_CLOUD_PROVIDERS = frozenset({"aws", "gcp", "azure", "ovh", "scaleway", "ibm"})
 
 # Capability tag dispatch table for the most-commonly-used RCA tools.
 # Tools NOT listed here default to: mutates=False, cacheable=False, capability_tags=[]

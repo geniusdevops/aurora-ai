@@ -51,7 +51,7 @@ def get_user_providers(user_id: str) -> List[str]:
     if not user_id:
         return []
 
-    _cloud_providers = {'aws', 'gcp', 'azure', 'ovh', 'scaleway'}
+    _cloud_providers = {'aws', 'gcp', 'azure', 'ovh', 'scaleway', 'ibm'}
     verified = []
 
     try:

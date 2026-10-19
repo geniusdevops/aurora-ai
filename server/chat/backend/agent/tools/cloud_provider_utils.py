@@ -155,6 +155,25 @@ def determine_target_provider_from_context(available_providers: List[str]) -> Op
                     'scaleway projects', 'scw projects', 'list scaleway instances', 'show scaleway instances',
                     'scaleway instances', 'scaleway servers', 'scw instances'
                 ]
+            },
+            'ibm': {
+                'primary_keywords': ['ibm cloud', 'ibmcloud', 'ibm'],
+                'services': [
+                    'ibm vpc', 'ibm virtual server', 'ibm vsi', 'iks', 'roks',
+                    'ibm kubernetes service', 'red hat openshift on ibm cloud',
+                    'ibm cloud databases', 'ibm cloud object storage', 'ibm cos',
+                    'ibm code engine', 'ibm secrets manager', 'ibm event streams',
+                    'ibm cloud monitoring', 'ibm cloud logs'
+                ],
+                'cli_patterns': ['ibmcloud', 'ibmcloud is', 'ibmcloud ks', 'ibmcloud oc'],
+                'deployment_patterns': [
+                    'deploy to ibm cloud', 'deploy on ibm cloud', 'create ibm',
+                    'use ibm cloud', 'with ibm cloud', 'on ibm cloud', 'in ibm cloud'
+                ],
+                'high_confidence_queries': [
+                    'list ibm instances', 'ibm instances', 'ibm vpcs', 'list ibm vpcs',
+                    'ibm clusters', 'list iks clusters', 'list roks clusters', 'ibm accounts'
+                ]
             }
         }
 
